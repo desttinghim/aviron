@@ -21,45 +21,14 @@ pub fn main() !u8 {
         return if (cli.options.help) @as(u8, 0) else 1;
     }
 
-    // Emulate Atmega382p device size:
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
 
     // TODO: Add support for more MCUs!
-    std.debug.assert(cli.options.mcu == .atmega328p);
-
-    var flash_storage = aviron.Flash.Static(32768){};
-    var sram = aviron.RAM.Static(2048){};
-    var eeprom = aviron.EEPROM.Static(1024){};
-    var io = IO{
-        .sreg = undefined,
-        .sp = sram.data.len - 1,
+    const cpu = switch (cli.options.mcu) {
+        .atmega328p => try init_atmega328p(arena.allocator(), cli.options.trace),
+        .atmega4809 => try init_atmega4809(arena.allocator(), cli.options.trace),
     };
-
-    var cpu = aviron.Cpu{
-        .trace = cli.options.trace,
-
-        .flash = flash_storage.memory(),
-        .sram = sram.memory(),
-        .eeprom = eeprom.memory(),
-        .io = io.memory(),
-
-        .code_model = .code16,
-        .instruction_set = .avr5,
-
-        .sio = .{
-            .ramp_x = null,
-            .ramp_y = null,
-            .ramp_z = null,
-            .ramp_d = null,
-            .e_ind = null,
-
-            .sp_l = @intFromEnum(IO.Register.sp_l),
-            .sp_h = @intFromEnum(IO.Register.sp_h),
-
-            .sreg = @intFromEnum(IO.Register.sreg),
-        },
-    };
-
-    io.sreg = &cpu.sreg;
 
     if (cli.options.info) {
         var stdout = std.io.getStdOut().writer();
@@ -86,9 +55,9 @@ pub fn main() !u8 {
                 continue; // Header isn't lodead
 
             const dest_mem = if (phdr.p_vaddr >= 0x0080_0000)
-                &sram.data
+                cpu.sram.slice()
             else
-                &flash_storage.data;
+                cpu.flash.slice();
 
             const addr_masked: u24 = @intCast(phdr.p_vaddr & 0x007F_FFFF);
 
@@ -105,9 +74,118 @@ pub fn main() !u8 {
     return 0;
 }
 
+fn init_atmega328p(arena: std.mem.Allocator, trace: bool) !*aviron.Cpu {
+    // Emulate Atmega382p device size:
+
+    var flash_storage = try arena.create(aviron.Flash.Static(32768));
+    errdefer arena.destroy(flash_storage);
+    flash_storage.* = .{};
+
+    var sram = try arena.create(aviron.RAM.Static(2048));
+    errdefer arena.destroy(sram);
+    sram.* = .{};
+
+    var eeprom = try arena.create(aviron.EEPROM.Static(1024));
+    errdefer arena.destroy(eeprom);
+    eeprom.* = .{};
+
+    var io = try arena.create(IO);
+    errdefer arena.destroy(io);
+    io.* = .{
+        .sreg = undefined,
+        .sp = sram.data.len - 1,
+    };
+
+    var cpu = try arena.create(aviron.Cpu);
+    errdefer arena.destroy(cpu);
+    cpu.* = .{
+        .trace = trace,
+
+        .flash = flash_storage.memory(),
+        .sram = sram.memory(),
+        .eeprom = eeprom.memory(),
+        .io = io.memory(),
+
+        .code_model = .code16,
+        .instruction_set = .avr5,
+
+        .sio = .{
+            .ramp_x = null,
+            .ramp_y = null,
+            .ramp_z = null,
+            .ramp_d = null,
+            .e_ind = null,
+
+            .sp_l = @intFromEnum(IO.Register.sp_l),
+            .sp_h = @intFromEnum(IO.Register.sp_h),
+
+            .sreg = @intFromEnum(IO.Register.sreg),
+        },
+    };
+
+    io.sreg = &cpu.sreg;
+
+    return cpu;
+}
+
+fn init_atmega4809(arena: std.mem.Allocator, trace: bool) !*aviron.Cpu {
+    // Emulate Atmega4809 device size:
+
+    var flash_storage = try arena.create(aviron.Flash.Static(48 * 1024));
+    errdefer arena.destroy(flash_storage);
+    flash_storage.* = .{};
+
+    var sram = try arena.create(aviron.RAM.Static(6 * 1024));
+    errdefer arena.destroy(sram);
+    sram.* = .{};
+
+    var eeprom = try arena.create(aviron.EEPROM.Static(256));
+    errdefer arena.destroy(eeprom);
+    eeprom.* = .{};
+
+    var io = try arena.create(IO);
+    errdefer arena.destroy(io);
+    io.* = .{
+        .sreg = undefined,
+        .sp = sram.data.len - 1,
+    };
+
+    var cpu = try arena.create(aviron.Cpu);
+    errdefer arena.destroy(cpu);
+    cpu.* = .{
+        .trace = trace,
+
+        .flash = flash_storage.memory(),
+        .sram = sram.memory(),
+        .eeprom = eeprom.memory(),
+        .io = io.memory(),
+
+        .code_model = .code22,
+        .instruction_set = .avrxmega,
+
+        .sio = .{
+            .ramp_x = null,
+            .ramp_y = null,
+            .ramp_z = null,
+            .ramp_d = null,
+            .e_ind = null,
+
+            .sp_l = @intFromEnum(IO.Register.sp_l),
+            .sp_h = @intFromEnum(IO.Register.sp_h),
+
+            .sreg = @intFromEnum(IO.Register.sreg),
+        },
+    };
+
+    io.sreg = &cpu.sreg;
+
+    return cpu;
+}
+
 // not actually marvel cinematic universe, but microcontroller unit ;
 pub const MCU = enum {
     atmega328p,
+    atmega4809,
 };
 
 const Cli = struct {

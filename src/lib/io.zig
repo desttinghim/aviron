@@ -15,8 +15,13 @@ pub const Flash = struct {
         return mem.vtable.readFn(mem.ctx, addr);
     }
 
+    pub fn slice(mem: Flash) []u8 {
+        return mem.vtable.sliceFn(mem.ctx);
+    }
+
     pub const VTable = struct {
         readFn: *const fn (ctx: ?*anyopaque, addr: Address) u16,
+        sliceFn: *const fn (ctx: ?*anyopaque) []u8,
     };
 
     pub const empty = Flash{
@@ -47,11 +52,16 @@ pub const Flash = struct {
                 };
             }
 
-            pub const vtable = VTable{ .readFn = memRead };
+            pub const vtable = VTable{ .readFn = memRead, .sliceFn = memSlice };
 
             fn memRead(ctx: ?*anyopaque, addr: Address) u16 {
                 const mem: *Self = @ptrCast(@alignCast(ctx.?));
                 return std.mem.bytesAsSlice(u16, &mem.data)[addr];
+            }
+
+            fn memSlice(ctx: ?*anyopaque) []u8 {
+                const mem: *Self = @ptrCast(@alignCast(ctx.?));
+                return &mem.data;
             }
         };
     }
@@ -76,9 +86,14 @@ pub const RAM = struct {
         return mem.vtable.writeFn(mem.ctx, addr, value);
     }
 
+    pub fn slice(mem: RAM) []u8 {
+        return mem.vtable.sliceFn(mem.ctx);
+    }
+
     pub const VTable = struct {
         readFn: *const fn (ctx: ?*anyopaque, addr: Address) u8,
         writeFn: *const fn (ctx: ?*anyopaque, addr: Address, value: u8) void,
+        sliceFn: *const fn (ctx: ?*anyopaque) []u8,
     };
 
     pub const empty = RAM{
@@ -116,6 +131,7 @@ pub const RAM = struct {
             pub const vtable = VTable{
                 .readFn = memRead,
                 .writeFn = memWrite,
+                .sliceFn = memSlice,
             };
 
             fn memRead(ctx: ?*anyopaque, addr: Address) u8 {
@@ -126,6 +142,11 @@ pub const RAM = struct {
             fn memWrite(ctx: ?*anyopaque, addr: Address, value: u8) void {
                 const mem: *Self = @ptrCast(@alignCast(ctx.?));
                 mem.data[addr] = value;
+            }
+
+            fn memSlice(ctx: ?*anyopaque) []u8 {
+                const mem: *Self = @ptrCast(@alignCast(ctx.?));
+                return &mem.data;
             }
         };
     }
